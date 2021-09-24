@@ -7,6 +7,8 @@ import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.RatingCompat;
 import android.support.v4.media.session.MediaSessionCompat.QueueItem;
+
+import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
@@ -155,15 +157,14 @@ public class Track extends TrackMetadata {
         } else {
 
             // Creates a default http source factory, enabling cross protocol redirects
-            DefaultHttpDataSourceFactory factory = new DefaultHttpDataSourceFactory(
-                    userAgent, null,
-                    DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS,
-                    DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
-                    true
-            );
+            DefaultHttpDataSource.Factory factory = new DefaultHttpDataSource.Factory()
+                    .setUserAgent(userAgent)
+                    .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
+                    .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
+                    .setAllowCrossProtocolRedirects(true);
 
             if(headers != null) {
-                factory.getDefaultRequestProperties().set(headers);
+                factory.setDefaultRequestProperties(headers);
             }
 
             ds = playback.enableCaching(factory);
@@ -180,23 +181,23 @@ public class Track extends TrackMetadata {
             default:
                 return new ProgressiveMediaSource.Factory(ds, new DefaultExtractorsFactory()
                         .setConstantBitrateSeekingEnabled(true))
-                        .createMediaSource(uri);
+                        .createMediaSource(new MediaItem.Builder().setUri(uri).build());
         }
     }
 
     private MediaSource createDashSource(DataSource.Factory factory) {
         return new DashMediaSource.Factory(new DefaultDashChunkSource.Factory(factory), factory)
-                .createMediaSource(uri);
+                .createMediaSource(new MediaItem.Builder().setUri(uri).build());
     }
 
     private MediaSource createHlsSource(DataSource.Factory factory) {
         return new HlsMediaSource.Factory(factory)
-                .createMediaSource(uri);
+                .createMediaSource(new MediaItem.Builder().setUri(uri).build());
     }
 
     private MediaSource createSsSource(DataSource.Factory factory) {
         return new SsMediaSource.Factory(new DefaultSsChunkSource.Factory(factory), factory)
-                .createMediaSource(uri);
+                .createMediaSource(new MediaItem.Builder().setUri(uri).build());
     }
 
 }
