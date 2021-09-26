@@ -158,7 +158,8 @@ public abstract class ExoPlayback<T extends Player> implements Player.Listener, 
         lastKnownWindow = player.getCurrentWindowIndex();
         lastKnownPosition = player.getCurrentPosition();
 
-        player.stop(true);
+        player.stop();
+        player.clearMediaItems();
         player.setPlayWhenReady(false);
     }
 
