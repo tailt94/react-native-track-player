@@ -8,7 +8,6 @@ import com.facebook.react.bridge.Promise;
 import com.google.android.exoplayer2.*;
 import com.google.android.exoplayer2.Timeline.Window;
 import com.google.android.exoplayer2.metadata.Metadata;
-import com.google.android.exoplayer2.metadata.MetadataOutput;
 import com.google.android.exoplayer2.source.TrackGroup;
 import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
@@ -24,7 +23,7 @@ import java.util.List;
 /**
  * @author Guichaguri
  */
-public abstract class ExoPlayback<T extends Player> implements Player.Listener, MetadataOutput {
+public abstract class ExoPlayback<T extends Player> implements Player.Listener {
 
     protected final Context context;
     protected final MusicManager manager;
