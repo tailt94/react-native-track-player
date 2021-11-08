@@ -6,25 +6,15 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import com.facebook.react.bridge.Promise;
 import com.google.android.exoplayer2.*;
-import com.google.android.exoplayer2.Player.EventListener;
 import com.google.android.exoplayer2.Timeline.Window;
-import com.google.android.exoplayer2.extractor.mp4.MdtaMetadataEntry;
 import com.google.android.exoplayer2.metadata.Metadata;
-import com.google.android.exoplayer2.metadata.MetadataOutput;
-import com.google.android.exoplayer2.metadata.flac.VorbisComment;
-import com.google.android.exoplayer2.metadata.icy.IcyHeaders;
-import com.google.android.exoplayer2.metadata.icy.IcyInfo;
-import com.google.android.exoplayer2.metadata.id3.TextInformationFrame;
-import com.google.android.exoplayer2.metadata.id3.UrlLinkFrame;
 import com.google.android.exoplayer2.source.TrackGroup;
 import com.google.android.exoplayer2.source.TrackGroupArray;
-import com.google.android.exoplayer2.source.hls.HlsTrackMetadataEntry;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.guichaguri.trackplayer.service.MusicManager;
 import com.guichaguri.trackplayer.service.Utils;
 import com.guichaguri.trackplayer.service.models.Track;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -33,7 +23,7 @@ import java.util.List;
 /**
  * @author Guichaguri
  */
-public abstract class ExoPlayback<T extends Player> implements EventListener, MetadataOutput {
+public abstract class ExoPlayback<T extends Player> implements Player.Listener {
 
     protected final Context context;
     protected final MusicManager manager;
@@ -53,9 +43,6 @@ public abstract class ExoPlayback<T extends Player> implements EventListener, Me
         this.manager = manager;
         this.player = player;
         this.autoUpdateMetadata = autoUpdateMetadata;
-
-        Player.MetadataComponent component = player.getMetadataComponent();
-        if(component != null) component.addMetadataOutput(this);
     }
 
     public void initialize() {
@@ -152,7 +139,7 @@ public abstract class ExoPlayback<T extends Player> implements EventListener, Me
         lastKnownWindow = player.getCurrentWindowIndex();
         lastKnownPosition = player.getCurrentPosition();
 
-        player.stop(false);
+        player.stop();
         player.setPlayWhenReady(false);
         player.seekTo(lastKnownWindow,0);
     }
@@ -161,7 +148,8 @@ public abstract class ExoPlayback<T extends Player> implements EventListener, Me
         lastKnownWindow = player.getCurrentWindowIndex();
         lastKnownPosition = player.getCurrentPosition();
 
-        player.stop(true);
+        player.stop();
+        player.clearMediaItems();
         player.setPlayWhenReady(false);
     }
 
@@ -247,13 +235,13 @@ public abstract class ExoPlayback<T extends Player> implements EventListener, Me
     public void onTimelineChanged(@NonNull Timeline timeline, int reason) {
         Log.d(Utils.LOG, "onTimelineChanged: " + reason);
 
-        if((reason == Player.TIMELINE_CHANGE_REASON_PREPARED || reason == Player.TIMELINE_CHANGE_REASON_DYNAMIC) && !timeline.isEmpty()) {
-            onPositionDiscontinuity(Player.DISCONTINUITY_REASON_INTERNAL);
+        if((reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED || reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) && !timeline.isEmpty()) {
+            onPositionDiscontinuity(null, null, Player.DISCONTINUITY_REASON_INTERNAL);
         }
     }
 
     @Override
-    public void onPositionDiscontinuity(int reason) {
+    public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
         Log.d(Utils.LOG, "onPositionDiscontinuity: " + reason);
 
         if(lastKnownWindow != player.getCurrentWindowIndex()) {
@@ -263,14 +251,14 @@ public abstract class ExoPlayback<T extends Player> implements EventListener, Me
 
             // Track changed because it ended
             // We'll use its duration instead of the last known position
-            if (reason == Player.DISCONTINUITY_REASON_PERIOD_TRANSITION && lastKnownWindow != C.INDEX_UNSET) {
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && lastKnownWindow != C.INDEX_UNSET) {
                 if (lastKnownWindow >= player.getCurrentTimeline().getWindowCount()) return;
                 long duration = player.getCurrentTimeline().getWindow(lastKnownWindow, new Window()).getDurationMs();
                 if(duration != C.TIME_UNSET) lastKnownPosition = duration;
             }
 
             manager.onTrackUpdate(prevIndex, lastKnownPosition, nextIndex, next);
-        } else if (reason == Player.DISCONTINUITY_REASON_PERIOD_TRANSITION && lastKnownWindow == player.getCurrentWindowIndex()) {
+        } else if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION && lastKnownWindow == player.getCurrentWindowIndex()) {
             Integer nextIndex = getCurrentTrackIndex();
             Track next = nextIndex == null ? null : queue.get(nextIndex);
 
@@ -304,60 +292,47 @@ public abstract class ExoPlayback<T extends Player> implements EventListener, Me
     }
 
     @Override
-    public void onLoadingChanged(boolean isLoading) {
+    public void onIsLoadingChanged(boolean isLoading) {
         // Buffering updates
     }
 
     @Override
-    public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-        int state = getState();
-        Log.d(Utils.LOG, "onPlayerStateChanged: " + state + ", " + previousState);
+    public void onEvents(Player player, Player.Events events) {
+        if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) || events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+            int state = getState();
+            Log.d(Utils.LOG, "onPlayerStateChanged: " + state + ", " + previousState);
 
-        if(state != previousState) {
-            if(Utils.isPlaying(state) && !Utils.isPlaying(previousState)) {
-                manager.onPlay();
-            } else if(Utils.isPaused(state) && !Utils.isPaused(previousState)) {
-                manager.onPause();
-            } else if(Utils.isStopped(state) && !Utils.isStopped(previousState)) {
-                manager.onStop();
+            if(state != previousState) {
+                if(Utils.isPlaying(state) && !Utils.isPlaying(previousState)) {
+                    manager.onPlay();
+                } else if(Utils.isPaused(state) && !Utils.isPaused(previousState)) {
+                    manager.onPause();
+                } else if(Utils.isStopped(state) && !Utils.isStopped(previousState)) {
+                    manager.onStop();
+                }
+
+                manager.onStateChange(state);
+
+                if(previousState != PlaybackStateCompat.STATE_CONNECTING && state == PlaybackStateCompat.STATE_STOPPED) {
+                    Integer previous = getCurrentTrackIndex();
+                    long position = getPosition();
+                    manager.onTrackUpdate(previous, position, null, null);
+                    manager.onEnd(getCurrentTrackIndex(), getPosition());
+                }
+
+                previousState = state;
             }
-
-            manager.onStateChange(state);
-
-            if(previousState != PlaybackStateCompat.STATE_CONNECTING && state == PlaybackStateCompat.STATE_STOPPED) {
-                Integer previous = getCurrentTrackIndex();
-                long position = getPosition();
-                manager.onTrackUpdate(previous, position, null, null);
-                manager.onEnd(getCurrentTrackIndex(), getPosition());
-            }
-
-            previousState = state;
         }
     }
 
     @Override
-    public void onPlayerError(ExoPlaybackException error) {
-        String code;
-
-        if(error.type == ExoPlaybackException.TYPE_SOURCE) {
-            code = "playback-source";
-        } else if(error.type == ExoPlaybackException.TYPE_RENDERER) {
-            code = "playback-renderer";
-        } else {
-            code = "playback"; // Other unexpected errors related to the playback
-        }
-
-        manager.onError(code, error.getCause().getMessage());
+    public void onPlayerError(PlaybackException error) {
+        manager.onError(error.getErrorCodeName(), error.getCause().getMessage());
     }
 
     @Override
     public void onPlaybackParametersChanged(@NonNull PlaybackParameters playbackParameters) {
         // Speed or pitch changes
-    }
-
-    @Override
-    public void onSeekProcessed() {
-        // Finished seeking
     }
 
     @Override
